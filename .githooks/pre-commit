@@ -1,0 +1,46 @@
+#!/usr/bin/env python
+"""pre-commit. Git запускает его перед созданием коммита.
+Ненулевой код возврата — коммит отменён."""
+import re
+import subprocess
+import sys
+
+
+def git(*args):
+    return subprocess.run(["git", *args], capture_output=True, text=True).stdout
+
+
+# --- уже достали из git, этим и работайте -----------------------------------
+
+# files — пути файлов, которые уходят в коммит
+files = git("diff", "--cached", "--name-only", "--diff-filter=ACM").split()
+
+# added — добавленные строки индекса, уже без ведущего '+'
+added = [line[1:] for line
+         in git("diff", "--cached", "--diff-filter=ACM", "-U0").splitlines()
+         if line.startswith("+") and not line.startswith("+++")]
+
+status = 0
+
+for path in files:
+    name = path.split("/")[-1]
+    if name == ".env" or name.startswith(".env."):
+        print(f"pre-commit: .env-файл в коммите: {path}", file=sys.stderr)
+        status = 1
+
+secret_re = re.compile(
+    r'(KEY|TOKEN|SECRET|PASSWORD)\s*=\s*\S',
+    re.IGNORECASE
+)
+
+for line in added:
+    if secret_re.search(line):
+        print(f"pre-commit: похоже на секрет: {line}", file=sys.stderr)
+        status = 1
+
+
+# ----------------------------------------------------------------------------
+if status:
+    print("pre-commit: коммит остановлен. Обойти осознанно: git commit --no-verify",
+          file=sys.stderr)
+sys.exit(status)
